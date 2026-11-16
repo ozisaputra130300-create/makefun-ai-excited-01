@@ -1,27 +1,44 @@
-// ai-excited-01 entry (Node 22, standard library only).
+// ai-excited-01 entry — Node 22, standard library only.
 //
-// The image this entry is judged on lives beside this file as entry.png.
-// All this program does is place an exact copy of it at /output/entry.png,
-// so the judge sees the same bytes on every run. No network, no randomness,
-// no drawing at run time: the bytes out are the bytes in.
+// The image the judge scores is entry.png, which sits next to this file.
+// This program has exactly one job: deliver those bytes, unchanged, to the
+// grader's output directory. It draws nothing, fetches nothing and rolls no
+// dice at run time, so the two grading runs always hand the judge the same
+// file. If anything about the copy looks wrong it fails loudly instead of
+// handing over a partial image.
 //
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Local check:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+//   # out/entry.png must be byte-identical to entry.png
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const target = join(outDir, 'entry.png');
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+const source = join(repoRoot, 'entry.png');
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const destination = join(outputDir, 'entry.png');
 
-mkdirSync(outDir, { recursive: true });
-const bytes = readFileSync(join(here, 'entry.png'));
-writeFileSync(target, bytes);
+// Confirm the file really is an image before shipping it. An image is told
+// apart by its first bytes: a PNG opens with 89 50 4E 47, a JPEG with FF D8
+// FF. Anything else means the wrong file ended up at this path.
+const head = readFileSync(source).subarray(0, 4);
+const isPng = head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47;
+const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+if (!isPng && !isJpeg) {
+  throw new Error('entry.png does not start with a PNG or JPEG signature');
+}
 
-// Fail loudly instead of handing the judge a short copy: the two runs
-// must write the same bytes, and a truncated write would fail the gate.
-if (readFileSync(target).length !== bytes.length) {
-  throw new Error('entry.png copy is incomplete');
+mkdirSync(outputDir, { recursive: true });
+copyFileSync(source, destination);
+
+// Both grading runs must produce the same bytes, so a short copy would fail
+// the gate. Compare the sizes and refuse to finish quietly on a mismatch.
+const expectedBytes = statSync(source).size;
+const writtenBytes = statSync(destination).size;
+if (writtenBytes !== expectedBytes) {
+  throw new Error(
+    `entry.png copy is incomplete: wrote ${writtenBytes} of ${expectedBytes} bytes`,
+  );
 }
